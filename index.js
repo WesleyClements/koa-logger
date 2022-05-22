@@ -52,9 +52,26 @@ module.exports = function (options) {
       ctx.originalUrl
     );
 
+    // log when the response is finished or closed,
+    // whichever happens first.
+    const onResolve = (event) => () => {
+      const length = counter ? counter.length : ctx.response.length;
+      ctx.res.removeListener('finish', onFinish);
+      ctx.res.removeListener('close', onClose);
+      log(print, ctx, start, length, null, event);
+    };
+
+    const onFinish = onResolve('finish');
+    const onClose = onResolve('close');
+
+    ctx.res.once('finish', onFinish);
+    ctx.res.once('close', onClose);
+
     try {
       await next();
     } catch (err) {
+      ctx.res.removeListener('finish', onFinish);
+      ctx.res.removeListener('close', onClose);
       // log uncaught downstream errors
       log(print, ctx, start, null, err);
       throw err;
@@ -64,24 +81,9 @@ module.exports = function (options) {
     // by intercepting the stream with a counter.
     // only necessary if a content-length header is currently not set.
     let counter;
-    if (ctx.response.length == null && ctx.body && ctx.body.readable)
+    const bodyIsStream = Boolean(ctx.body && ctx.body.readable);
+    if (ctx.response.length == null && bodyIsStream) {
       counter = ctx.body.pipe(new Counter()).on('error', ctx.onerror);
-
-    // log when the response is finished or closed,
-    // whichever happens first.
-    const { res } = ctx;
-
-    const onfinish = done.bind(null, 'finish');
-    const onclose = done.bind(null, 'close');
-
-    res.once('finish', onfinish);
-    res.once('close', onclose);
-
-    function done(event) {
-      const length = counter ? counter.length : ctx.response.length;
-      res.removeListener('finish', onfinish);
-      res.removeListener('close', onclose);
-      log(print, ctx, start, length, null, event);
     }
   };
 };
